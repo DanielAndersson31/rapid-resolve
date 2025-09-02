@@ -1,0 +1,164 @@
+{
+  "description": "Privacy screening validation dataset for >95% accuracy testing",
+  "version": "1.0",
+  "test_cases": [
+    {
+      "id": "email_basic",
+      "text": "Please contact me at john.doe@example.com for assistance.",
+      "language": "en",
+      "expected_entities": ["EMAIL"],
+      "category": "basic_email"
+    },
+    {
+      "id": "phone_us",
+      "text": "Call me at 555-123-4567 or (555) 987-6543 for support.",
+      "language": "en",
+      "expected_entities": ["PHONE"],
+      "category": "phone_numbers"
+    },
+    {
+      "id": "email_and_phone",
+      "text": "Reach out to jane@company.org or call 555-HELP-NOW",
+      "language": "en",
+      "expected_entities": ["EMAIL", "PHONE"],
+      "category": "mixed_pii"
+    },
+    {
+      "id": "credit_card",
+      "text": "My credit card number is 4111-1111-1111-1111 expiring 12/25",
+      "language": "en",
+      "expected_entities": ["CREDIT_CARD", "DATE"],
+      "category": "financial"
+    },
+    {
+      "id": "ssn_us",
+      "text": "My SSN is 123-45-6789 for verification",
+      "language": "en",
+      "expected_entities": ["SSN"],
+      "category": "government_id"
+    },
+    {
+      "id": "address_basic",
+      "text": "I live at 123 Main Street, Springfield, IL",
+      "language": "en",
+      "expected_entities": ["ADDRESS"],
+      "category": "address"
+    },
+    {
+      "id": "person_name",
+      "text": "Please speak with John Smith about this issue",
+      "language": "en",
+      "expected_entities": ["PERSON"],
+      "category": "names"
+    },
+    {
+      "id": "url_exposure",
+      "text": "Check my profile at https://linkedin.com/in/johndoe",
+      "language": "en",
+      "expected_entities": ["URL"],
+      "category": "urls"
+    },
+    {
+      "id": "ip_address",
+      "text": "Connect to server at 192.168.1.100 port 8080",
+      "language": "en",
+      "expected_entities": ["IP_ADDRESS"],
+      "category": "network"
+    },
+    {
+      "id": "swedish_email",
+      "text": "Kontakta mig på användare@exempel.se för hjälp",
+      "language": "sv",
+      "expected_entities": ["EMAIL"],
+      "category": "international"
+    },
+    {
+      "id": "swedish_personal_number",
+      "text": "Mitt personnummer är 901010-1234",
+      "language": "sv",
+      "expected_entities": ["SWEDISH_PERSONAL"],
+      "category": "international_id"
+    },
+    {
+      "id": "mixed_language",
+      "text": "Email me at support@företag.se or call +46-70-123-4567",
+      "language": "sv",
+      "expected_entities": ["EMAIL", "PHONE"],
+      "category": "mixed_international"
+    },
+    {
+      "id": "complex_customer_message",
+      "text": "Hi, my name is Sarah Johnson and I'm having issues with my Dell XPS laptop. You can reach me at sarah.j@gmail.com or 617-555-0123. My order number is ORD-2024-001234.",
+      "language": "en",
+      "expected_entities": ["PERSON", "EMAIL", "PHONE"],
+      "category": "customer_service"
+    },
+    {
+      "id": "sensitive_tech_support",
+      "text": "Please remote into my computer at 203.0.113.45 using admin password 'MySecret123!' to fix the issue.",
+      "language": "en",
+      "expected_entities": ["IP_ADDRESS"],
+      "category": "tech_support"
+    },
+    {
+      "id": "medical_context",
+      "text": "Patient John Doe (DOB: 01/15/1985, SSN: 555-44-3333) needs followup",
+      "language": "en",
+      "expected_entities": ["PERSON", "DATE", "SSN"],
+      "category": "healthcare"
+    },
+    {
+      "id": "financial_details",
+      "text": "Transfer $1,500 from account 123456789 to routing 021000021",
+      "language": "en",
+      "expected_entities": ["MISC"],
+      "category": "banking"
+    },
+    {
+      "id": "social_media",
+      "text": "Follow us @TechSupport on Twitter or message facebook.com/ourcompany",
+      "language": "en",
+      "expected_entities": ["URL"],
+      "category": "social"
+    },
+    {
+      "id": "location_specific",
+      "text": "Meet at Apple Store, 1 Infinite Loop, Cupertino, CA 95014",
+      "language": "en",
+      "expected_entities": ["ORG", "ADDRESS"],
+      "category": "location"
+    },
+    {
+      "id": "date_variations",
+      "text": "Born on March 15, 1990 and graduated 05/20/2012",
+      "language": "en",
+      "expected_entities": ["DATE"],
+      "category": "temporal"
+    },
+    {
+      "id": "no_pii_clean",
+      "text": "The laptop is working fine after the latest update. No issues to report.",
+      "language": "en",
+      "expected_entities": [],
+      "category": "clean_text"
+    },
+    {
+      "id": "false_positive_test",
+      "text": "The API endpoint returns data in JSON format with 200 OK status",
+      "language": "en",
+      "expected_entities": [],
+      "category": "technical_clean"
+    }
+  ],
+  "accuracy_requirements": {
+    "minimum_accuracy": 0.95,
+    "description": "System must achieve at least 95% accuracy across all test cases",
+    "evaluation_method": "True positive detection of expected entities per test case"
+  },
+  "notes": {
+    "creation_date": "2024-09-02",
+    "purpose": "Validation dataset for multimodal customer service AI privacy screening",
+    "languages_covered": ["en", "sv"],
+    "entity_types": ["EMAIL", "PHONE", "PERSON", "SSN", "CREDIT_CARD", "ADDRESS", "URL", "IP_ADDRESS", "DATE", "ORG", "SWEDISH_PERSONAL", "MISC"]
+  }
+}
