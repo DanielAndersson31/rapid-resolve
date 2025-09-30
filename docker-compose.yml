@@ -1,22 +1,73 @@
-version: "3.8"
 services:
-  app:
-    build: .
-    ports:
-      - "8000:8000"
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: rapid-resolve-postgres
     environment:
-      - DATABASE_URL=sqlite:///./app.db
+      POSTGRES_DB: rapid_resolve_db
+      POSTGRES_USER: rapid_resolve_user
+      POSTGRES_PASSWORD: rapid_resolve_password
+    ports:
+      - "5432:5432"
     volumes:
-      - .:/app
-    depends_on:
-      - chromadb
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rapid_resolve_user -d rapid_resolve_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rapid-resolve-network
 
+  # ChromaDB Vector Database
   chromadb:
     image: chromadb/chroma:latest
+    container_name: rapid-resolve-chromadb
     ports:
       - "8001:8000"
     volumes:
       - chromadb_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rapid-resolve-network
+
+  # FastAPI Application
+  app:
+    build: .
+    container_name: rapid-resolve-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://rapid_resolve_user:rapid_resolve_password@postgres:5432/rapid_resolve_db
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/.venv # Prevent mounting .venv from host
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - rapid-resolve-network
 
 volumes:
+  postgres_data:
+    driver: local
   chromadb_data:
+    driver: local
+
+networks:
+  rapid-resolve-network:
+    driver: bridge

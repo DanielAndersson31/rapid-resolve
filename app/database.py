@@ -97,8 +97,9 @@ def check_db_connection() -> bool:
     Returns True if connection successful, False otherwise.
     """
     try:
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         logger.info("Database connection successful")
         return True
     except Exception as e:
@@ -128,8 +129,9 @@ def health_check() -> dict:
     Returns status information.
     """
     try:
+        from sqlalchemy import text
         with engine.connect() as conn:
-            result = conn.execute("SELECT version()")
+            result = conn.execute(text("SELECT version()"))
             version = result.fetchone()[0]
             
         return {
