@@ -1,7 +1,7 @@
 [project]
 name = "rapid-resolve"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multimodal Customer Service AI System with Multi-Interaction Context Tracking"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -12,7 +12,13 @@ dependencies = [
     "llama-index>=0.13.5",
     "llama-index-llms-anthropic>=0.8.5",
     "llama-index-llms-openai>=0.5.4",
+    "openai>=1.0.0",
+    "openai-whisper>=20231117",
+    "psycopg2-binary>=2.9.9",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
     "python-dotenv>=1.1.1",
+    "python-multipart>=0.0.6",
     "sqlalchemy>=2.0.43",
     "uvicorn>=0.35.0",
 ]
