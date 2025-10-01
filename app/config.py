@@ -34,11 +34,8 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = None
     anthropic_model: str = "claude-3-5-sonnet-20241022"
     
-    # Cloudflare R2
-    cloudflare_r2_endpoint: str
-    cloudflare_r2_access_key: str
-    cloudflare_r2_secret_key: str
-    cloudflare_r2_bucket: str
+    # Local File Storage
+    storage_path: str = "./storage"  # Local directory for file storage
     
     # File Upload Limits
     max_file_size_mb: int = 50
@@ -60,11 +57,6 @@ class Settings(BaseSettings):
     # Ticket Settings
     default_ticket_priority: str = "medium"
     auto_escalate_threshold: float = 0.8
-    
-    @property
-    def r2_endpoint_url(self) -> str:
-        """Format R2 endpoint URL"""
-        return f"https://{self.cloudflare_r2_endpoint}"
 
 
 # Global settings instance

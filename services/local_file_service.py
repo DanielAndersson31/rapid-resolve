@@ -1,9 +1,11 @@
-import boto3
+import os
 import hashlib
 import mimetypes
-from typing import Optional, List, Dict, Any, BinaryIO
-from datetime import datetime, timedelta
-from botocore.exceptions import ClientError, NoCredentialsError
+import shutil
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+import json
 import logging
 
 from app.config import settings
@@ -11,55 +13,30 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-class R2FileService:
+class LocalFileService:
     """
-    Cloudflare R2 service for handling file uploads and management.
-    Integrates with the ticketing system for multimodal content storage.
+    Local file storage service with same interface as R2FileService.
+    Stores files in local directory structure for development/demo purposes.
     """
     
-    def __init__(self):
-        """Initialize R2 client with credentials from settings"""
-        try:
-            self.s3_client = boto3.client(
-                's3',
-                endpoint_url=settings.r2_endpoint_url,
-                aws_access_key_id=settings.cloudflare_r2_access_key,
-                aws_secret_access_key=settings.cloudflare_r2_secret_key,
-                region_name='auto'
-            )
-            self.bucket = settings.cloudflare_r2_bucket
+    def __init__(self, storage_path: Optional[str] = None):
+        """
+        Initialize local file service.
+        
+        Args:
+            storage_path: Base directory for file storage (uses settings.storage_path if not provided)
+        """
+        if storage_path is None:
+            storage_path = settings.storage_path
             
-            # Test connection
-            self._verify_bucket_access()
-            logger.info("R2 file service initialized successfully")
-            
-        except NoCredentialsError:
-            logger.error("R2 credentials not found")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to initialize R2 service: {e}")
-            raise
-    
-    def _verify_bucket_access(self):
-        """Verify bucket exists and is accessible"""
-        try:
-            self.s3_client.head_bucket(Bucket=self.bucket)
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            if error_code == '404':
-                logger.warning(f"Bucket {self.bucket} not found, attempting to create...")
-                self._create_bucket()
-            else:
-                raise
-    
-    def _create_bucket(self):
-        """Create R2 bucket if it doesn't exist"""
-        try:
-            self.s3_client.create_bucket(Bucket=self.bucket)
-            logger.info(f"Created R2 bucket: {self.bucket}")
-        except ClientError as e:
-            logger.error(f"Failed to create bucket: {e}")
-            raise
+        self.storage_path = Path(storage_path)
+        self.metadata_path = Path(storage_path) / ".metadata"
+        
+        # Create storage directories
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+        self.metadata_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Local file service initialized at {self.storage_path.absolute()}")
     
     def upload_media_file(
         self,
@@ -88,7 +65,9 @@ class R2FileService:
             file_hash = hashlib.md5(file_data).hexdigest()[:8]
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             
-            r2_key = f"tickets/{ticket_id}/interactions/{interaction_id}/{timestamp}_{file_hash}{file_extension}"
+            # Create local path structure
+            relative_path = f"tickets/{ticket_id}/interactions/{interaction_id}/{timestamp}_{file_hash}{file_extension}"
+            full_path = self.storage_path / relative_path
             
             # Detect content type if not provided
             if not content_type:
@@ -96,31 +75,35 @@ class R2FileService:
                 if not content_type:
                     content_type = "application/octet-stream"
             
-            # Upload to R2
-            self.s3_client.put_object(
-                Bucket=self.bucket,
-                Key=r2_key,
-                Body=file_data,
-                ContentType=content_type,
-                Metadata={
-                    'ticket_id': str(ticket_id),
-                    'interaction_id': str(interaction_id),
-                    'original_filename': original_filename,
-                    'upload_timestamp': datetime.utcnow().isoformat()
-                }
-            )
+            # Create directories
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Write file
+            with open(full_path, 'wb') as f:
+                f.write(file_data)
+            
+            # Store metadata
+            metadata = {
+                'ticket_id': ticket_id,
+                'interaction_id': interaction_id,
+                'original_filename': original_filename,
+                'upload_timestamp': datetime.utcnow().isoformat(),
+                'content_type': content_type,
+                'file_size': len(file_data)
+            }
+            self._save_metadata(relative_path, metadata)
             
             logger.info(f"Uploaded media file {original_filename} for ticket {ticket_id}")
             
             return {
-                'r2_key': r2_key,
-                'r2_bucket': self.bucket,
-                'r2_url': self._generate_public_url(r2_key),
+                'r2_key': relative_path,
+                'r2_bucket': 'local',
+                'r2_url': f"file://{full_path.absolute()}",
                 'content_type': content_type,
                 'file_size': len(file_data)
             }
             
-        except ClientError as e:
+        except Exception as e:
             logger.error(f"Failed to upload media file: {e}")
             raise
     
@@ -150,85 +133,93 @@ class R2FileService:
             file_hash = hashlib.md5(file_data).hexdigest()[:8]
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             
-            r2_key = f"tickets/{ticket_id}/attachments/{attachment_type}/{timestamp}_{file_hash}{file_extension}"
+            relative_path = f"tickets/{ticket_id}/attachments/{attachment_type}/{timestamp}_{file_hash}{file_extension}"
+            full_path = self.storage_path / relative_path
             
             if not content_type:
                 content_type, _ = mimetypes.guess_type(original_filename)
                 if not content_type:
                     content_type = "application/octet-stream"
             
-            self.s3_client.put_object(
-                Bucket=self.bucket,
-                Key=r2_key,
-                Body=file_data,
-                ContentType=content_type,
-                Metadata={
-                    'ticket_id': str(ticket_id),
-                    'attachment_type': attachment_type,
-                    'original_filename': original_filename,
-                    'upload_timestamp': datetime.utcnow().isoformat()
-                }
-            )
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(full_path, 'wb') as f:
+                f.write(file_data)
+            
+            metadata = {
+                'ticket_id': ticket_id,
+                'attachment_type': attachment_type,
+                'original_filename': original_filename,
+                'upload_timestamp': datetime.utcnow().isoformat(),
+                'content_type': content_type,
+                'file_size': len(file_data)
+            }
+            self._save_metadata(relative_path, metadata)
             
             logger.info(f"Uploaded attachment {original_filename} for ticket {ticket_id}")
             
             return {
-                'r2_key': r2_key,
-                'r2_bucket': self.bucket,
-                'r2_url': self._generate_public_url(r2_key),
+                'r2_key': relative_path,
+                'r2_bucket': 'local',
+                'r2_url': f"file://{full_path.absolute()}",
                 'content_type': content_type,
                 'file_size': len(file_data)
             }
             
-        except ClientError as e:
+        except Exception as e:
             logger.error(f"Failed to upload ticket attachment: {e}")
             raise
     
     def download_file(self, r2_key: str) -> bytes:
         """
-        Download file from R2 storage.
+        Download file from local storage.
         
         Args:
-            r2_key: R2 object key
+            r2_key: File path (relative to storage_path)
         
         Returns:
             Binary file data
         """
         try:
-            response = self.s3_client.get_object(
-                Bucket=self.bucket,
-                Key=r2_key
-            )
-            return response['Body'].read()
+            full_path = self.storage_path / r2_key
             
-        except ClientError as e:
+            if not full_path.exists():
+                raise FileNotFoundError(f"File not found: {r2_key}")
+            
+            with open(full_path, 'rb') as f:
+                return f.read()
+            
+        except Exception as e:
             logger.error(f"Failed to download file {r2_key}: {e}")
             raise
     
     def get_file_metadata(self, r2_key: str) -> Dict[str, Any]:
         """
-        Get file metadata from R2.
+        Get file metadata from local storage.
         
         Args:
-            r2_key: R2 object key
+            r2_key: File path (relative to storage_path)
         
         Returns:
             Dict with content_type, content_length, last_modified, metadata
         """
         try:
-            response = self.s3_client.head_object(
-                Bucket=self.bucket,
-                Key=r2_key
-            )
+            full_path = self.storage_path / r2_key
+            
+            if not full_path.exists():
+                raise FileNotFoundError(f"File not found: {r2_key}")
+            
+            stat = full_path.stat()
+            stored_metadata = self._load_metadata(r2_key)
             
             return {
-                'content_type': response.get('ContentType'),
-                'content_length': response.get('ContentLength', 0),
-                'last_modified': response.get('LastModified', '').isoformat() if response.get('LastModified') else None,
-                'metadata': response.get('Metadata', {})
+                'content_type': stored_metadata.get('content_type', 'application/octet-stream'),
+                'content_length': stat.st_size,
+                'last_modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                'metadata': stored_metadata
             }
             
-        except ClientError as e:
+        except Exception as e:
             logger.error(f"Failed to get metadata for {r2_key}: {e}")
             raise
     
@@ -238,49 +229,46 @@ class R2FileService:
         expiration: int = 3600
     ) -> str:
         """
-        Generate presigned URL for secure file access.
+        Generate file path (presigned URLs not needed for local storage).
         
         Args:
-            r2_key: R2 object key
-            expiration: URL expiration time in seconds (default 1 hour)
+            r2_key: File path
+            expiration: Ignored for local storage
         
         Returns:
-            Presigned URL string
+            File path as URL
         """
-        try:
-            url = self.s3_client.generate_presigned_url(
-                'get_object',
-                Params={
-                    'Bucket': self.bucket,
-                    'Key': r2_key
-                },
-                ExpiresIn=expiration
-            )
-            return url
-            
-        except ClientError as e:
-            logger.error(f"Failed to generate presigned URL: {e}")
-            raise
+        full_path = self.storage_path / r2_key
+        return f"file://{full_path.absolute()}"
     
     def delete_file(self, r2_key: str) -> bool:
         """
-        Delete file from R2 storage.
+        Delete file from local storage.
         
         Args:
-            r2_key: R2 object key
+            r2_key: File path (relative to storage_path)
         
         Returns:
             True if successful, False otherwise
         """
         try:
-            self.s3_client.delete_object(
-                Bucket=self.bucket,
-                Key=r2_key
-            )
-            logger.info(f"Deleted file {r2_key}")
-            return True
+            full_path = self.storage_path / r2_key
             
-        except ClientError as e:
+            if full_path.exists():
+                full_path.unlink()
+                
+                # Delete metadata
+                metadata_file = self._get_metadata_path(r2_key)
+                if metadata_file.exists():
+                    metadata_file.unlink()
+                
+                logger.info(f"Deleted file {r2_key}")
+                return True
+            else:
+                logger.warning(f"File not found for deletion: {r2_key}")
+                return False
+            
+        except Exception as e:
             logger.error(f"Failed to delete file {r2_key}: {e}")
             return False
     
@@ -300,27 +288,29 @@ class R2FileService:
             List of file information dicts
         """
         try:
-            prefix = f"tickets/{ticket_id}/"
+            search_path = self.storage_path / f"tickets/{ticket_id}"
             if file_type:
-                prefix += f"{file_type}/"
+                search_path = search_path / file_type
             
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix=prefix
-            )
+            if not search_path.exists():
+                return []
             
             files = []
-            for obj in response.get('Contents', []):
-                files.append({
-                    'key': obj['Key'],
-                    'size': obj['Size'],
-                    'last_modified': obj['LastModified'].isoformat(),
-                    'public_url': self._generate_public_url(obj['Key'])
-                })
+            for file_path in search_path.rglob('*'):
+                if file_path.is_file() and not file_path.name.startswith('.'):
+                    relative_path = file_path.relative_to(self.storage_path)
+                    stat = file_path.stat()
+                    
+                    files.append({
+                        'key': str(relative_path),
+                        'size': stat.st_size,
+                        'last_modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        'public_url': f"file://{file_path.absolute()}"
+                    })
             
             return files
             
-        except ClientError as e:
+        except Exception as e:
             logger.error(f"Failed to list files for ticket {ticket_id}: {e}")
             return []
     
@@ -360,29 +350,31 @@ class R2FileService:
             Dict with total_objects, total_size_bytes, total_size_mb, file_types
         """
         try:
-            response = self.s3_client.list_objects_v2(Bucket=self.bucket)
-            
-            total_objects = response.get('KeyCount', 0)
-            total_size = sum(obj['Size'] for obj in response.get('Contents', []))
-            
-            # Calculate by file type
+            total_objects = 0
+            total_size = 0
             file_types = {}
-            for obj in response.get('Contents', []):
-                ext = self._get_file_extension(obj['Key'])
-                if ext not in file_types:
-                    file_types[ext] = {'count': 0, 'size': 0}
-                file_types[ext]['count'] += 1
-                file_types[ext]['size'] += obj['Size']
+            
+            for file_path in self.storage_path.rglob('*'):
+                if file_path.is_file() and not file_path.name.startswith('.'):
+                    total_objects += 1
+                    size = file_path.stat().st_size
+                    total_size += size
+                    
+                    ext = self._get_file_extension(file_path.name)
+                    if ext not in file_types:
+                        file_types[ext] = {'count': 0, 'size': 0}
+                    file_types[ext]['count'] += 1
+                    file_types[ext]['size'] += size
             
             return {
                 'total_objects': total_objects,
                 'total_size_bytes': total_size,
                 'total_size_mb': round(total_size / (1024 * 1024), 2),
                 'file_types': file_types,
-                'bucket': self.bucket
+                'bucket': 'local'
             }
             
-        except ClientError as e:
+        except Exception as e:
             logger.error(f"Failed to get storage stats: {e}")
             return {}
     
@@ -436,6 +428,33 @@ class R2FileService:
         
         return results
     
+    def cleanup_old_files(self, days_old: int = 30) -> int:
+        """
+        Delete files older than specified days (useful for cleanup).
+        
+        Args:
+            days_old: Delete files older than this many days
+        
+        Returns:
+            Number of files deleted
+        """
+        deleted_count = 0
+        cutoff_time = datetime.now().timestamp() - (days_old * 24 * 60 * 60)
+        
+        try:
+            for file_path in self.storage_path.rglob('*'):
+                if file_path.is_file() and not file_path.name.startswith('.'):
+                    if file_path.stat().st_mtime < cutoff_time:
+                        file_path.unlink()
+                        deleted_count += 1
+            
+            logger.info(f"Cleaned up {deleted_count} old files")
+            return deleted_count
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup old files: {e}")
+            return deleted_count
+    
     # Private helper methods
     
     def _get_file_extension(self, filename: str) -> str:
@@ -444,26 +463,37 @@ class R2FileService:
             return '.' + filename.split('.')[-1]
         return ''
     
-    def _generate_public_url(self, r2_key: str) -> str:
-        """
-        Generate public URL for R2 object.
-        Note: This assumes you have a public domain configured for your R2 bucket.
-        If not, use generate_presigned_url() instead.
-        """
-        # This is a placeholder - replace with your actual R2 public domain
-        return f"{settings.r2_endpoint_url}/{self.bucket}/{r2_key}"
+    def _get_metadata_path(self, r2_key: str) -> Path:
+        """Get path to metadata file for a given file"""
+        # Create unique metadata filename from r2_key
+        metadata_name = r2_key.replace('/', '_').replace('\\', '_') + '.json'
+        return self.metadata_path / metadata_name
+    
+    def _save_metadata(self, r2_key: str, metadata: Dict[str, Any]):
+        """Save metadata for a file"""
+        metadata_file = self._get_metadata_path(r2_key)
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+    
+    def _load_metadata(self, r2_key: str) -> Dict[str, Any]:
+        """Load metadata for a file"""
+        metadata_file = self._get_metadata_path(r2_key)
+        if metadata_file.exists():
+            with open(metadata_file, 'r') as f:
+                return json.load(f)
+        return {}
 
 
 # Singleton instance
-_r2_service_instance: Optional[R2FileService] = None
+_file_service_instance: Optional[LocalFileService] = None
 
 
-def get_r2_service() -> R2FileService:
+def get_file_service() -> LocalFileService:
     """
-    Get R2 service singleton instance.
+    Get file service singleton instance.
     Used for dependency injection in FastAPI.
     """
-    global _r2_service_instance
-    if _r2_service_instance is None:
-        _r2_service_instance = R2FileService()
-    return _r2_service_instance
+    global _file_service_instance
+    if _file_service_instance is None:
+        _file_service_instance = LocalFileService()
+    return _file_service_instance
